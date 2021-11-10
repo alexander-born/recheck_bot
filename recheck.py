@@ -18,8 +18,7 @@ def ParseArguments():
     )
     parser.add_argument(
         "--recheck_on_any_failure",
-        type=int,
-        default=0,
+        action="store_true",
         help="rechecks on any failure (default: only on timeout)",
     )
     return parser.parse_args()

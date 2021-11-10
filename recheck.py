@@ -107,8 +107,17 @@ class PrRechecker:
         return False
 
     def last_comment_is_recheck(self):
-        comments = self.github.get(f"repos/{self.repo}/issues/{self.pr}/comments")
-        return comments[-1]["body"] == "recheck"
+        page = 1
+        last_comment = ""
+        while True:
+            comments = self.github.get(
+                f"repos/{self.repo}/issues/{self.pr}/comments?page={page}"
+            )
+            page += 1
+            if not comments:
+                break
+            last_comment = comments[-1]["body"]
+        return last_comment == "recheck"
 
     def has_merge_conflicts(self):
         return self.pr_info["mergeable_state"] == "dirty"

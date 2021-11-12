@@ -69,44 +69,54 @@ class GitHubApi:
 
 
 class PrRechecker:
-    def __init__(self, github, repo, pr, recheck_on_any_failure):
+    def __init__(
+        self, github: GitHubApi, repo: str, pr: str, recheck_on_any_failure: bool
+    ):
         self.github = github
         self.repo = repo
         self.pr = pr
-        self.pr_info = self.github.get(f"repos/{self.repo}/pulls/{self.pr}")
         self.recheck_on_any_failure = recheck_on_any_failure
+        self.pr_info = self.github.get(f"repos/{self.repo}/pulls/{self.pr}")
+        self.check_runs = self.github.dev_get(
+            f"repos/{self.repo}/commits/{self.get_last_commit()}/check-runs"
+        )
+        self.last_comment = self.get_last_comment()
 
-    def check_failed(self, run):
+    def failed(self, run):
         completed = run["status"] == "completed"
         failed = run["conclusion"] == "failure"
         return completed and failed
 
-    def check_timed_out(self, run):
-        return "TIMED_OUT" in run["output"]["summary"]
+    def timed_out(self, run):
+        summary = run["output"]["summary"]
+        return "TIMED_OUT" in summary or "RETRY_LIMIT" in summary
 
     def get_last_commit(self):
         return self.pr_info["head"]["sha"]
 
-    def commit_status_success(self, commit_sha):
-        commit_status = github.get(f"repos/{self.repo}/commits/{commit_sha}/status")
+    def commit_status_success(self):
+        commit_status = github.get(
+            f"repos/{self.repo}/commits/{self.get_last_commit()}/status"
+        )
         return commit_status["state"] == "success"
 
-    def any_check_job_failed(self):
-        commit_sha = self.get_last_commit()
-        if not self.commit_status_success(commit_sha):
+    def name(self, name, run):
+        return name in run["external_id"]
+
+    def run_failed(self, name):
+        if not self.commit_status_success():
             return False
 
-        check_runs = self.github.dev_get(
-            f"repos/{self.repo}/commits/{commit_sha}/check-runs"
-        )
-        for run in check_runs["check_runs"]:
-            if self.check_failed(run) and (
-                self.check_timed_out(run) or self.recheck_on_any_failure
+        for run in self.check_runs["check_runs"]:
+            if (
+                self.failed(run)
+                and self.name(name, run)
+                and (self.timed_out(run) or self.recheck_on_any_failure)
             ):
                 return True
         return False
 
-    def last_comment_is_recheck(self):
+    def get_last_comment(self):
         page = 1
         last_comment = ""
         while True:
@@ -117,17 +127,19 @@ class PrRechecker:
             if not comments:
                 break
             last_comment = comments[-1]["body"]
-        return last_comment == "recheck"
+        return last_comment
+
+    def last_comment_is(self, comment):
+        return self.last_comment == comment
 
     def has_merge_conflicts(self):
         return self.pr_info["mergeable_state"] == "dirty"
 
     def needs_recheck(self):
-        return (
-            not self.last_comment_is_recheck()
-            and not self.has_merge_conflicts()
-            and self.any_check_job_failed()
-        )
+        return not self.last_comment_is("recheck") and self.run_failed("check")
+
+    def needs_regate(self):
+        return not self.last_comment_is("regate") and self.run_failed("gate")
 
     def comment(self, text):
         self.github.post(
@@ -145,10 +157,12 @@ if __name__ == "__main__":
             )
             if pr_rechecker.has_merge_conflicts():
                 print(f"[WARNING]: {args.repo}#{pr} has merge conflicts")
-                continue
-            if pr_rechecker.needs_recheck():
+            elif pr_rechecker.needs_recheck():
                 print(f"[INFO]: {args.repo}#{pr} rechecking")
                 pr_rechecker.comment("recheck")
+            elif pr_rechecker.needs_regate():
+                print(f"[INFO]: {args.repo}#{pr} regating")
+                pr_rechecker.comment("regate")
             else:
-                print(f"[INFO]: {args.repo}#{pr} no recheck necessary")
+                print(f"[INFO]: {args.repo}#{pr} no recheck/gate necessary")
         time.sleep(args.time)

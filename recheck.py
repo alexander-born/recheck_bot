@@ -145,6 +145,7 @@ class PrRechecker:
         self.github.post(
             f"""repos/{self.repo}/issues/{self.pr}/comments -d '{{"body":"{text}"}}'"""
         )
+        print(f"[INFO]: {self.repo}#{self.pr} {text}")
 
 
 if __name__ == "__main__":
@@ -158,10 +159,8 @@ if __name__ == "__main__":
             if pr_rechecker.has_merge_conflicts():
                 print(f"[WARNING]: {args.repo}#{pr} has merge conflicts")
             elif pr_rechecker.needs_recheck():
-                print(f"[INFO]: {args.repo}#{pr} rechecking")
                 pr_rechecker.comment("recheck")
             elif pr_rechecker.needs_regate():
-                print(f"[INFO]: {args.repo}#{pr} regating")
                 pr_rechecker.comment("regate")
             else:
                 print(f"[INFO]: {args.repo}#{pr} no recheck/gate necessary")

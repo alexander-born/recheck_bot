@@ -82,10 +82,16 @@ class PrRechecker:
         )
         self.last_comment = self.get_last_comment()
 
-    def failed(self, run):
+    def conclusion(self, run, conclusion):
         completed = run["status"] == "completed"
-        failed = run["conclusion"] == "failure"
+        failed = run["conclusion"] == conclusion
         return completed and failed
+
+    def failed(self, run):
+        return self.conclusion(run, "failure")
+
+    def successfull(self, run):
+        return self.conclusion(run, "success")
 
     def timed_out(self, run):
         summary = run["output"]["summary"]
@@ -102,6 +108,15 @@ class PrRechecker:
 
     def name(self, name, run):
         return name in run["external_id"]
+
+    def run_successfull(self, name):
+        if not self.commit_status_success():
+            return False
+
+        for run in self.check_runs["check_runs"]:
+            if self.name(name, run) and self.successfull(run):
+                return True
+        return False
 
     def run_failed(self, name):
         if not self.commit_status_success():
@@ -139,7 +154,13 @@ class PrRechecker:
         return not self.last_comment_is("recheck") and self.run_failed("check")
 
     def needs_regate(self):
-        return not self.last_comment_is("regate") and self.run_failed("gate")
+        return (
+            not self.last_comment_is("regate")
+            and self.run_failed("gate")
+            and (
+                self.run_successfull("check") or self.run_successfull("priority-check")
+            )
+        )
 
     def comment(self, text):
         self.github.post(
